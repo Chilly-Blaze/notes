@@ -444,100 +444,6 @@ pnpm i -g picgo
 
 测试一下即可
 
-### 系统问题
-
-以下改动如果不生效一律需要重启才会生效
-
-#### 普通用户无法sudo
-
-具体表现是使用`sudo xxx`的时候统一报错`xxx is not in the sudoers file. This incident will be reported`
-
-其实原因也很简单，先用root用户找到`/etc/sudoers`文件，添加`xxx ALL=(ALL:ALL) ALL`即可（可以在任意地方）
-
-#### ntfs-3g
-
-刚进入系统的时候其实并不能访问ntfs类型的磁盘内容，因此需要我们下载一个`ntfs-3g`的包即可，`yay -S ntfs-3g`
-
-#### 检测不到声卡
-
-```shell
-yay -S alsa-firmware sof-firmware alsa-ucm-conf
-```
-
-#### 双系统时间
-
-```shell
-timedatectl set-local-rtc 1 --adjust-system-clock
-```
-
-#### 代理无效
-
-无论是直接`export ...`还是在`.bashrc/.zshrc`里面添加代理信息都是只应用终端上的，如果只是export甚至一关机就消失了，这是由于Linux加载环境变量的各种规则，想要在应用中同样适用桌面应用内，我们应该改动的是`/etc/environment`的内容
-
-```shell
-vim /etc/environment
--------------------------------------
-#
-# This file is parsed by pam_env module
-#
-# Syntax: simple "KEY=VAL" pairs on separate lines
-#
-export https_proxy=http://127.0.0.1:7890
-export http_proxy=http://127.0.0.1:7890
-export all_proxy=socks5://127.0.0.1:7890
-```
-
-#### nvim无法内部复制
-
-鉴于还是nvim比较香，因此这里以nvim为例，vim可行性不得而知
-
-我们需要先下载一个`xsel`，这个东西是为了用于操作linux的剪切板的，之后我们直接打开nvim就会发现居然直接就可以通过`"+y`复制到剪切板了
-
-如果嫌这样还是太麻烦了，那么我们还可以只在配置文件中设置一下剪贴板的`set clipboard=unnamedplus`即可
-
-```text
-yay -S xsel
-nvim ~/.config/nvim/init.vim
-----------------
-set clipboard=unnamedplus
-```
-
-#### 触摸板轻触无效
-
-直接去设置里面改一下就好了`setting->Input Device->Touchpad->Tap-to-click`设置一下就好了
-
-#### 蓝牙无法搜索
-
-具体表现是蓝牙界面搜索不到内容，其实原因主要还是没有设置开机启动项
-
-```shell
-systemctl enable bluetooth
-systemctl start bluetooth
-```
-
-#### Meta+D仅置顶桌面
-
- KDE比较恶心的地方就在于默认情况下`Meta+D`只会暂时置顶桌面而不是置顶桌面的同时最小化所有窗口，这就会导致虽然显示桌面了，但是并不能做到像是整理所有窗口的功能，一旦再通过`Alt+Tab`就会一下子一大堆之前的窗口重新冒出来，这显然是不合常理的
-
-首先我们知道，KDE中所有的窗口界面的顶层控制器都是Kwin，因此我们需要针对其进行设置
-
-首先进入设置->Window Management->KWin Scripts->MinimizeAll勾选上，之后进入设置->Shortcuts->Shortcuts->KWin->MinimizeAll修改为自定义快捷键`Meta+D`覆盖掉原本的`Display Desktop`即可
-
-#### 大量打开方式被覆盖
-
-问题的出现是我装了libreOffice之后几乎所有文本文件后缀的文件默认打开方式都变成了它，但是我的真实目的仅是通过它开一些word文件，这种耍流氓的做法让我十分不爽，急于在不删除这个应用的情况下，将乱开应用的问题彻底抹杀
-
-有两种解决方案，第一种针对少量后缀被修改的情况，后一种针对大量后缀均被统一修改的情况
-
-1. 设置->Application->File Associations，接着找到被修改的后缀，在Application Preference Order中调整默认启动应用（注意类别一项可以被展开）
-1. 在`/usr/share/application`中找到乱默认启动的应用`xxx.desktop`（比如我就是`libreOffice-xxx.desktop`），注意有些desktop实际上是软链接，最好是通过`ls -al`来找到软链接原出处修改原始配置内容（比如ilbreOffice的真实`.desktop`在`/usr/lib/libreoffice/share/xdg/`这个路径下），之后打开这个文件，删除其中所有的`MIMETYPE`这一配置项，重启系统即可
-
-#### Window Decorations在Chrome显示问题
-
-一般来说就是比如Decorations设置的边缘透明但是Chrome中不显示透明，这时候其实跟系统关系不大，我们需要去Chrome的设置里面->Appearence->Use system title bar and borders勾选即可
-
-如果觉得效果一般也可以设置一个较为理想的Chrome主题
-
 ### Zsh
 
 美好的终端不能少了Zsh的帮助，这次我不会再用什么牛马Oh my Zsh了，不妨自己从零开始配置一下Zsh的内容
@@ -652,8 +558,8 @@ compinit
 
 ```shell
 alias tree='tree -a -I .git'
-alias v='nvim'
-alias vi='nvim'
+alias -g v='nvim'
+alias -g vi='nvim'
 alias ls='logo-ls'
 alias ll='exa -l --color=auto'
 alias la='exa -ahl --color=auto'
@@ -662,8 +568,12 @@ alias sz='exec zsh'
 alias zb='neofetch | lolcat'
 alias c='clear'
 alias df='df -h'
-alias tq='inix -W Hefei,China'
+# Git Alias
 alias glog='git log --graph --pretty=oneline --abbrev-commit'
+alias gac="git add . && git commit -m"
+alias gi="git init && gac 'Initialization'"
+alias gpm="git push origin master"
+alias glm="git pull origin master"
 ```
 
 #### 指令补全
@@ -832,3 +742,105 @@ GRUB的主题可以从[pling](https://www.pling.com/browse?cat=109&ord=latest)�
 - 接着`update-grub`即可自动生成`grub.cfg`
 
 这样GRUB的主题也就配置完成了
+
+### 系统问题
+
+Linux最重要的就是折腾，因此新系统不可避免的会有一大堆奇奇怪怪的问题，下面列举了个人遇到的问题内容，以下改动如果不生效一律需要重启才会生效
+
+#### 普通用户无法sudo
+
+具体表现是使用`sudo xxx`的时候统一报错`xxx is not in the sudoers file. This incident will be reported`
+
+其实原因也很简单，先用root用户找到`/etc/sudoers`文件，添加`xxx ALL=(ALL:ALL) ALL`即可（可以在任意地方）
+
+#### 无法访问ntfs格式磁盘
+
+刚进入系统的时候其实并不能访问ntfs类型的磁盘内容，因此需要我们下载一个`ntfs-3g`的包即可，`yay -S ntfs-3g`
+
+#### 检测不到声卡
+
+```shell
+yay -S alsa-firmware sof-firmware alsa-ucm-conf
+```
+
+#### 双系统时间
+
+```shell
+timedatectl set-local-rtc 1 --adjust-system-clock
+```
+
+#### 代理无效
+
+无论是直接`export ...`还是在`.bashrc/.zshrc`里面添加代理信息都是只应用终端上的，如果只是export甚至一关机就消失了，这是由于Linux加载环境变量的各种规则，想要在应用中同样适用桌面应用内，我们应该改动的是`/etc/environment`的内容
+
+```shell
+vim /etc/environment
+-------------------------------------
+#
+# This file is parsed by pam_env module
+#
+# Syntax: simple "KEY=VAL" pairs on separate lines
+#
+export https_proxy=http://127.0.0.1:7890
+export http_proxy=http://127.0.0.1:7890
+export all_proxy=socks5://127.0.0.1:7890
+```
+
+#### nvim无法内部复制
+
+鉴于还是nvim比较香，因此这里以nvim为例，vim可行性不得而知
+
+我们需要先下载一个`xsel`，这个东西是为了用于操作linux的剪切板的，之后我们直接打开nvim就会发现居然直接就可以通过`"+y`复制到剪切板了
+
+如果嫌这样还是太麻烦了，那么我们还可以只在配置文件中设置一下剪贴板的`set clipboard=unnamedplus`即可
+
+```text
+yay -S xsel
+nvim ~/.config/nvim/init.vim
+----------------
+set clipboard=unnamedplus
+```
+
+#### 触摸板轻触无效
+
+直接去设置里面改一下就好了`setting->Input Device->Touchpad->Tap-to-click`设置一下就好了
+
+#### 蓝牙无法搜索
+
+具体表现是蓝牙界面搜索不到内容，其实原因主要还是没有设置开机启动项
+
+```shell
+systemctl enable bluetooth
+systemctl start bluetooth
+```
+
+#### Meta+D仅置顶桌面
+
+ KDE比较恶心的地方就在于默认情况下`Meta+D`只会暂时置顶桌面而不是置顶桌面的同时最小化所有窗口，这就会导致虽然显示桌面了，但是并不能做到像是整理所有窗口的功能，一旦再通过`Alt+Tab`就会一下子一大堆之前的窗口重新冒出来，这显然是不合常理的
+
+首先我们知道，KDE中所有的窗口界面的顶层控制器都是Kwin，因此我们需要针对其进行设置
+
+首先进入设置->Window Management->KWin Scripts->MinimizeAll勾选上，之后进入设置->Shortcuts->Shortcuts->KWin->MinimizeAll修改为自定义快捷键`Meta+D`覆盖掉原本的`Display Desktop`即可
+
+#### 大量打开方式被覆盖
+
+问题的出现是我装了libreOffice之后几乎所有文本文件后缀的文件默认打开方式都变成了它，但是我的真实目的仅是通过它开一些word文件，这种耍流氓的做法让我十分不爽，急于在不删除这个应用的情况下，将乱开应用的问题彻底抹杀
+
+有两种解决方案，第一种针对少量后缀被修改的情况，后一种针对大量后缀均被统一修改的情况
+
+1. 设置->Application->File Associations，接着找到被修改的后缀，在Application Preference Order中调整默认启动应用（注意类别一项可以被展开）
+1. 在`/usr/share/application`中找到乱默认启动的应用`xxx.desktop`（比如我就是`libreOffice-xxx.desktop`），注意有些desktop实际上是软链接，最好是通过`ls -al`来找到软链接原出处修改原始配置内容（比如ilbreOffice的真实`.desktop`在`/usr/lib/libreoffice/share/xdg/`这个路径下），之后打开这个文件，删除其中所有的`MIMETYPE`这一配置项，重启系统即可
+
+#### Window Decorations在Chrome显示问题
+
+一般来说就是比如Decorations设置的边缘透明但是Chrome中不显示透明，这时候其实跟系统关系不大，我们需要去Chrome的设置里面->Appearence->Use system title bar and borders勾选即可
+
+如果觉得效果一般也可以设置一个较为理想的Chrome主题
+
+#### VSCode github登录错误
+
+由于vscode本来就在aur和官方库里面没有，同时又由于其实apt内有vscode，而使用apt的Linux系统大多都是Ubuntu，更重要的是Ubuntu默认都是Gnome桌面，导致vscode的登陆必须需要`gnome-keyring`才能正确登录，直接`yay -S gnome-keyring`即可
+
+#### p10k终端图标过小
+
+具体就是命令行前半段系统标志图标和当前家目录图标在高分屏下显示过小，其实就是字体没配对，Settings->Manage Profiles->选择自己的配置文件或者自己新建一个配置文件，Edit->Appearence->Font一栏修改字体为任意带Nerd的字体（如果没有就去下一个，比如`yay hack-nerd-font`）
