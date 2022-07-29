@@ -319,7 +319,7 @@ export FREETYPE_PROPERTIES="truetype:interpreter-version=40"
 
 ```text
 pacman -S xorg  # 显示服务X11
-pacman -S plasma sddm konsole dolphin flameshot  # 从前往后分别是：桌面界面，登录管理器，终端，文件管理器，截图工具
+pacman -S plasma sddm konsole dolphin ark flameshot  # 从前往后分别是：桌面界面，登录管理器，终端，文件管理器，解压工具，截图工具
 systemctl enable sddm  # 设置sddm登录
 ```
 
@@ -743,6 +743,8 @@ GRUB的主题可以从[pling](https://www.pling.com/browse?cat=109&ord=latest)�
 
 这样GRUB的主题也就配置完成了
 
+
+
 ### 系统问题
 
 Linux最重要的就是折腾，因此新系统不可避免的会有一大堆奇奇怪怪的问题，下面列举了个人遇到的问题内容，以下改动如果不生效一律需要重启才会生效
@@ -844,3 +846,17 @@ systemctl start bluetooth
 #### p10k终端图标过小
 
 具体就是命令行前半段系统标志图标和当前家目录图标在高分屏下显示过小，其实就是字体没配对，Settings->Manage Profiles->选择自己的配置文件或者自己新建一个配置文件，Edit->Appearence->Font一栏修改字体为任意带Nerd的字体（如果没有就去下一个，比如`yay hack-nerd-font`）
+
+#### `xdg-open: unexpected option '--'`
+
+这是在ranger使用时打开一些神秘后缀的文件时出现的问题，主要还是ranger奇怪的默认配置文件搞得鬼，于是我们得修改一下其默认的配置文件
+
+首先应当确保你曾经执行过`ranger --copy-config=all`这个指令，即在`~/.config/ranger`下存在几个默认生成的文件（如果没有就执行一下，也很简单）
+
+之后找到生成出来的`rifle.conf`的文件，接着根据不同的要求，会有不同的几种解决方案
+
+1. 只想让指定后缀的文件通过环境变量`$EDITOR`方式打开，则找到第一个出现`!mime ^text, label editor, ext xml|json|csv|tex|py|pl|rb|js|sh|php = ${VISU
+   AL:-$EDITOR} -- "$@"`的地方，在php后学着加上所需要的指定后缀，重启ranger即可
+2. 想让指定后缀的文件通过非`xdg-open`的指定方式打开，则学着类似`ext exe = wine "$1"`的样子自己写一个规则，满足`ext [后缀] = [打开指令] "$1"`的方式
+3. 需要根据不同的需求用不同的方式打开指定后缀文件，则将2指令中的`=`后面改为`ask`，则选定文件之后会询问打开方式
+4. 就想用`xdg-open`打开指定后缀文件，则去掉`label open, has xdg-open = xdg-open -- "$@"`一行的两个`-`符号
