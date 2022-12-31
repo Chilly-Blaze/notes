@@ -860,3 +860,126 @@ systemctl start bluetooth
 2. 想让指定后缀的文件通过非`xdg-open`的指定方式打开，则学着类似`ext exe = wine "$1"`的样子自己写一个规则，满足`ext [后缀] = [打开指令] "$1"`的方式
 3. 需要根据不同的需求用不同的方式打开指定后缀文件，则将2指令中的`=`后面改为`ask`，则选定文件之后会询问打开方式
 4. 就想用`xdg-open`打开指定后缀文件，则去掉`label open, has xdg-open = xdg-open -- "$@"`一行的两个`-`符号
+
+#### docker启动失败（failed to create endpoint ...）
+
+原因是更新系统之后没重启，重启一下即可
+
+#### 端口占用
+
+1. `lsof -i:[目标端口]`获取占用进程PID，如果没有lsof就下一个`yay lsof`
+2. 直接`kill -9 [PID]`即可
+
+#### Nvidia显卡导致窗口动画消失
+
+```shell
+yay -S nvidia nvidia-settings lib32-nvidia-utils
+```
+
+之后重启电脑即可，详细可以查看https://archlinuxstudio.github.io/ArchLinuxTutorial
+
+#### Nvidia停留在Graphical无法进入图形化
+
+可能是之前使用过了`nvidia-xconfig`命令后移动到了另一台显卡不同的机器上启动，现在只需要删除`/etc/X11/xorg.conf`配置文件重启即可
+
+#### Clash全线超时
+
+其实就是系统时间和远程服务器时间对不上，也就是本地时间不对，可以到http://www.time163.com/看看是不是有问题，然后setting->Date & Time->Set date and time automatically勾选应用即可
+
+#### VNC的爱恨情仇
+
+第一次遇到不支持uefi的主板，没办法，我们只能用极为土味的方法，先把笔记本开在那里然后尝试台式机的远程桌面连接
+
+然后查着查着就找到了VNC，这玩意确实符合我的要求，但是却不符合我这种奇葩的情况，导致出现了一堆问题
+
+1. 获取`tigervnc`直接`yay -S tigervnc`就可以了
+2. 接着我们要开启服务端的服务，输入`vncpasswd`设置密码
+3. 开启服务端服务`x0vncserver -rfbauth ~/.vnc/passwd -Geometry 1920x1080`后面是连接端的分辨率
+4. 新开一个终端然后`ip -brief address `获取本机的ip地址
+5. 在本机下载[VNCViewer](https://sourceforge.net/projects/tigervnc/files/stable/1.12.0/)，然后启动之后连接界面上展示的端口和之前获得的ip
+
+看上去似乎很美好，但是实际上你会发现不会有人让你使用`x0vncserver`这玩意开启服务端服务，而且这个模式不仅适配不了分辨率而且控制主机还无法共享剪切板，但是如果你尝试使用`vncserver`直接启动服务，可能就会发现连接的设备永远是只能展示一个带鼠标的黑屏，如何解决这个黑屏就成为了我们研究的关键
+
+1. 其实问题的关键就是我们已经用我们的用户登录了图形化界面，而vnc本身是不支持同一个用户用多个图形化界面的，因此最关键的就是我们要关闭自己电脑的图形化界面开机自启动`sudo systemctl set-default multi-user.target`，设置启动等级为3
+
+   > 之后需要恢复同样只需要`sudo systemctl set-default graphical.target`即可
+
+2. 接着我们使用`vncserver :1`即可
+
+看似很简单，然而花了我一个晚上的时间也不是吹的
+
+#### Nvidia内存错误
+
+新换了一个主板就是带感，赶紧试试可不可以启动系统，结果就给我报了一个内存错误
+
+```shell
+[    5.429675] nvidia-nvlink: Nvlink Core is being initialized, major device number 510
+
+[    5.429718] traps: Missing ENDBR: _portMemAllocatorAllocNonPagedWrapper+0x0/0x10 [nvidia]
+[    5.429816] ------------[ cut here ]------------
+[    5.429817] kernel BUG at arch/x86/kernel/traps.c:252!
+[    5.429828] invalid opcode: 0000 [#1] PREEMPT SMP NOPTI
+[    5.429830] CPU: 9 PID: 948 Comm: modprobe Tainted: G           OE     5.18.0-arch1-1 #1 b71a70fe104889aac2f32556bc52f649da2881d2
+[    5.429832] Hardware name: System76 Oryx Pro/Oryx Pro, BIOS 2021-09-23_b9b0e89 09/23/2021
+[    5.429833] RIP: 0010:exc_control_protection+0xc2/0xd0
+[    5.429837] Code: 8b 93 80 00 00 00 be f9 00 00 00 48 c7 c7 d3 ab 66 b5 e8 d1 01 50 ff e9 72 ff ff ff 48 c7 c7 ba ab 66 b5 e8 c7 31 fb ff 0f 0b <0f> 0b 66 66 2e 0f 1f 84 00 00 00 00 00 90 66 0f 1f 00 55 53 48 89
+[    5.429838] RSP: 0018:ffffa9c3413b3bb8 EFLAGS: 00010002
+[    5.429839] RAX: 000000000000004d RBX: ffffa9c3413b3bd8 RCX: 0000000000000027
+[    5.429840] RDX: 0000000000000000 RSI: 0000000000000001 RDI: ffff9d195fa616a0
+[    5.429841] RBP: 0000000000000003 R08: 0000000000000000 R09: ffffa9c3413b39d8
+[    5.429842] R10: 0000000000000003 R11: ffffffffb5ecaa08 R12: 0000000000000000
+[    5.429842] R13: 0000000000000000 R14: 0000000000000000 R15: 0000000000000000
+[    5.429843] FS:  00007f0aa9bbe740(0000) GS:ffff9d195fa40000(0000) knlGS:0000000000000000
+[    5.429844] CS:  0010 DS: 0000 ES: 0000 CR0: 0000000080050033
+[    5.429845] CR2: 00007f0aa8382000 CR3: 00000001063ce002 CR4: 0000000000f70ee0
+[    5.429846] PKRU: 55555554
+[    5.429847] Call Trace:
+[    5.429848]  <TASK>
+[    5.429849]  asm_exc_control_protection+0x22/0x30
+[    5.429852] RIP: 0010:_portMemAllocatorAllocNonPagedWrapper+0x0/0x10 [nvidia]
+[    5.429920] Code: 08 48 89 d0 48 89 0f 48 c1 e0 17 48 31 c2 48 89 c8 48 c1 e8 05 48 31 c8 48 31 d0 48 c1 ea 12 48 31 d0 48 89 47 08 01 c8 c3 90 <48> 89 f7 e9 38 0f 00 00 0f 1f 84 00 00 00 00 00 48 89 f7 e9 88 0f
+[    5.429921] RSP: 0018:ffffa9c3413b3c80 EFLAGS: 00010202
+[    5.429922] RAX: ffffffffc1eae5f0 RBX: 0000000000000010 RCX: 0000000000000000
+[    5.429923] RDX: 0000000000000000 RSI: 000000000000002c RDI: ffffffffc20f7b70
+[    5.429923] RBP: ffffa9c3413b3c98 R08: 0000000000000020 R09: ffffffffc20f7bf0
+[    5.429924] R10: ffffffffc20f55d0 R11: 0000000000000000 R12: ffffffffc20f7b70
+[    5.429925] R13: 00007f0aa8382dc0 R14: 000055916224ef30 R15: ffffa9c3413b3e20
+[    5.429926]  ? portCryptoPseudoRandomGeneratorGetU32+0x30/0x30 [nvidia 5737a4bc014c2c47af46ebdec30e9ee078e09f14]
+[    5.429991]  _portMemAllocatorAlloc+0x2e/0x170 [nvidia 5737a4bc014c2c47af46ebdec30e9ee078e09f14]
+[    5.430054]  portCryptoPseudoRandomGeneratorCreate+0x16/0xb0 [nvidia 5737a4bc014c2c47af46ebdec30e9ee078e09f14]
+[    5.430117]  portCryptoInitialize+0x2a/0x40 [nvidia 5737a4bc014c2c47af46ebdec30e9ee078e09f14]
+[    5.430182]  portInitialize+0x2b/0x40 [nvidia 5737a4bc014c2c47af46ebdec30e9ee078e09f14]
+[    5.430246]  coreInitializeRm+0x24/0x90 [nvidia 5737a4bc014c2c47af46ebdec30e9ee078e09f14]
+[    5.430324]  RmInitRm+0x9/0x20 [nvidia 5737a4bc014c2c47af46ebdec30e9ee078e09f14]
+[    5.430399]  rm_init_rm+0x9/0x10 [nvidia 5737a4bc014c2c47af46ebdec30e9ee078e09f14]
+[    5.430472]  nvidia_init_module+0x22e/0x5b0 [nvidia 5737a4bc014c2c47af46ebdec30e9ee078e09f14]
+[    5.430517]  ? nvidia_init_module+0x5b0/0x5b0 [nvidia 5737a4bc014c2c47af46ebdec30e9ee078e09f14]
+[    5.430565]  nvidia_frontend_init_module+0x50/0x91 [nvidia 5737a4bc014c2c47af46ebdec30e9ee078e09f14]
+[    5.430616]  ? nvidia_init_module+0x5b0/0x5b0 [nvidia 5737a4bc014c2c47af46ebdec30e9ee078e09f14]
+[    5.430663]  do_one_initcall+0x5a/0x220
+[    5.430667]  do_init_module+0x4a/0x240
+[    5.430670]  __do_sys_init_module+0x138/0x1b0
+[    5.430672]  do_syscall_64+0x5c/0x90
+[    5.430674]  ? exc_page_fault+0x74/0x170
+[    5.430676]  entry_SYSCALL_64_after_hwframe+0x44/0xae
+[    5.430677] RIP: 0033:0x7f0aa9512c3e
+[    5.430679] Code: 48 8b 0d 5d b1 0e 00 f7 d8 64 89 01 48 83 c8 ff c3 66 2e 0f 1f 84 00 00 00 00 00 90 f3 0f 1e fa 49 89 ca b8 af 00 00 00 0f 05 <48> 3d 01 f0 ff ff 73 01 c3 48 8b 0d 2a b1 0e 00 f7 d8 64 89 01 48
+[    5.430680] RSP: 002b:00007fff39f3cc58 EFLAGS: 00000246 ORIG_RAX: 00000000000000af
+[    5.430681] RAX: ffffffffffffffda RBX: 000055916224ebd0 RCX: 00007f0aa9512c3e
+[    5.430682] RDX: 000055916224ef30 RSI: 00000000008f1db0 RDI: 00007f0aa7a91010
+[    5.430682] RBP: 00007f0aa7a91010 R08: 000055916224eae0 R09: 0000000000000000
+[    5.430683] R10: 0000000000000005 R11: 0000000000000246 R12: 000055916224ef30
+[    5.430684] R13: 000055916224ed00 R14: 000055916224ebd0 R15: 000055916224ef60
+[    5.430685]  </TASK>
+[    5.430685] Modules linked in: pcc_cpufreq(-) nvidia(OE+) acpi_cpufreq(-) bnep bridge stp llc btusb btrtl btbcm btintel uvcvideo btmtk videobuf2_vmalloc bluetooth videobuf2_memops videobuf2_v4l2 videobuf2_common ecdh_generic videodev mc snd_sof_pci_intel_tgl snd_sof_intel_hda_common soundwire_intel soundwire_generic_allocation soundwire_cadence snd_hda_codec_realtek snd_sof_intel_hda snd_hda_codec_generic snd_sof_pci snd_sof_xtensa_dsp snd_sof snd_sof_utils snd_soc_hdac_hda iwlmvm snd_hda_ext_core snd_soc_acpi_intel_match snd_soc_acpi joydev intel_tcc_cooling soundwire_bus mousedev ledtrig_audio mac80211 x86_pkg_temp_thermal intel_powerclamp snd_soc_core coretemp snd_compress ac97_bus kvm_intel libarc4 hid_multitouch snd_hda_codec_hdmi 8250_dw spi_nor mei_pxp snd_pcm_dmaengine mei_hdcp ee1004 mtd i915 iTCO_wdt snd_hda_intel kvm intel_pmc_bxt snd_intel_dspcfg iTCO_vendor_support intel_rapl_msr iwlwifi irqbypass snd_intel_sdw_acpi snd_hda_codec crct10dif_pclmul crc32_pclmul
+[    5.430709]  ghash_clmulni_intel snd_hda_core iwlmei vfat aesni_intel processor_thermal_device_pci_legacy processor_thermal_device pmt_telemetry snd_hwdep crypto_simd pmt_class cryptd fat intel_cstate r8169 drm_buddy cfg80211 intel_uncore snd_pcm processor_thermal_rfim realtek psmouse ttm processor_thermal_mbox mei_me snd_timer rfkill pcspkr i2c_i801 mdio_devres processor_thermal_rapl intel_lpss_pci spi_intel_pci intel_rapl_common snd libphy intel_lpss drm_dp_helper spi_intel i2c_smbus soundcore int340x_thermal_zone thunderbolt mei i2c_hid_acpi idma64 intel_gtt intel_vsec intel_soc_dts_iosf i2c_hid intel_hid video intel_scu_pltdrv sparse_keymap system76_acpi mac_hid coreboot_table dm_multipath dm_mod ipmi_devintf ipmi_msghandler crypto_user acpi_call(OE) fuse bpf_preload ip_tables x_tables ext4 crc32c_generic crc16 mbcache jbd2 serio_raw atkbd uas libps2 usb_storage usbhid vivaldi_fmap nvme xhci_pci nvme_core crc32c_intel i8042 xhci_pci_renesas serio
+[    5.430736] ---[ end trace 0000000000000000 ]---
+```
+
+当然上面的错误信息是[网上找的](https://github.com/NVIDIA/open-gpu-kernel-modules/issues/256)，不过具体的表现只能说是大差不差，这个错误的具体反映就是提示`Failed to start Load Kernel Module`之后如果你查看`systemctl status systemd-modules-load.service `就会发现报错是`Main process exited, code=killed, status=11/SEGV`其报错的代号是`11/SEGV`表示内存错误
+
+与此同时tty2是可以正常切换的，伴随着控制台会出现乱七八糟的一大堆`audit`审计错误
+
+解决方式也十分简单，但是对我来说也是花了一个早上加一个下午的时间，总之只需要在grub界面按下`e`然后在类似于`linux /boot/vmlinuz-linux root=UUID=0a3407de-014b-458b-b5c1-848e92a327a3 rw `这一行的末尾加上`ibt=off`接着`ctrl+x`启动即可避免本次启动错误
+
+如果希望永久设置，则可以进入`/etc/default/grub`在`GRUB_CMDLINE_LINUX_DEFAULT=""`内加上`ibt=off`，接着退出后`update-grub`即可，内核的参数设置可以[详见](https://wiki.archlinux.org/title/Kernel_parameters)
