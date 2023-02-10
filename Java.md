@@ -11925,5 +11925,584 @@ void test02() {
 
    接着直接一个`Alt+Enter`选择生成代码即可，然后我们就会发现不仅是mapper接口，甚至映射文件都给你写好了，直接用就行，简直无敌，而且这玩意写的SQL语句比你写的都要好，我就是个废物
 
+## SpringCloud
 
+SpringCloud并不是一个框架，而是一个集成了各种乱七八糟组件的解决方案，提供了一套微服务架构所需的功能
+
+### 内置API调用
+
+1. 在启动类内创建Bean返回`new RestTemplate()`
+2. 在Service层注入`RestTemplate`对象
+3. 调用其`getForObject(url,class)`方法发请求并获得返回对象
+
+问题：
+
+- 无法负载均衡
+- 开闭问题
+
+### Eureka
+
+统一注册分发微服务，心跳监控服务状态
+
+1. `pom.xml`引入Eureka服务依赖
+
+2. 所有需要注册到Eureka的服务都需要`application.yml`编写配置内容`eureka.client.service-url.defaultZone=http://[ip]:[port]/eureka`配置地址信息（别忘了`server.port`和`spring.application.name`）
+
+   > Eureka会把自己也注册到自己上，所以他自己也要配这个
+
+3. Eureka服务端微服务的启动类上添加`@EnableEurekaServer`注解
+
+4. 在启动类的`RestTemplate`上添加`@LoadBalanced`负载均衡
+
+5. Eureka会根据微服务的`spring.application.name`作为服务名归类每个微服务，因此`getForObject(url,class)`的`url`的`ip`直接写服务名
+
+### Ribbon
+
+Eureka内部调用了Ribbon，同样是一个SpringCloud组件，`@LoadBalanced`就是Ribbon的注解，是我们发请求会先给Ribbon，Ribbon去请求Eureka然后返回结果根据负载均衡策略选一个请求后返回给服务
+
+重写负载均衡策略只需要在启动类内添加Bean重写IRule，返回某一个策略（比如`RandomRule()`），或者在配置文件内添加`[服务名].ribbon.NFLoadBalancerRuleClassName`配置项可以指定服务名的请求负载均衡策略
+
+Ribbon默认懒加载，服务启动的时候不会去拉取请求服务信息，直到第一次请求的时候Ribbon才去获取服务列表记录在缓存中，可以通过`ribbon.eager-load.enabled=true`使服务启动的时候就加载（饥饿加载），通过`ribbon.eager-load.clients=[服务名]`指定饥饿加载的服务名
+
+### Nacos
+
+#### Nacos部署
+
+1. 去仓库[下载](https://github.com/alibaba/nacos)
+2. 解压后去`conf/application.properties`调端口
+3. `startup.sh -m standalone`单机启动
+4. 访问Nacos控制台，登录账号密码默认都是nacos
+
+#### 注册到Nacos
+
+1. `pom.xml`引入`com.alibaba.cloud`和`nacos`依赖
+2. 配置文件配`spring.cloud.nacos.server-addr=[ip]:[port]`
+3. `spring.cloud.nacos.discovery.cluster-name=[集群名称]`配置集群信息
+4. 负载均衡还是Ribbon所以之前Eureka的内容可以不用动，也可以配一下`[服务名].ribbon.NFLoadBalancerRuleClassName=com.alibaba.cloud.nacos.ribbon.NacosRule`使用Nacos负载均衡策略，他会优先使用和自己集群名称一致的服务请求，然后根据控制台配置的权重分配请求（默认都是1）
+5. 还可以配命名空间`spring.cloud.nacos.discovery.namespace=[ip]`，不同命名空间的服务不可见
+
+Nacos会把服务的更改信息主动推送给注册的服务，我们也可以设置`spring.cloud.nacos.discovery.ephemeral=false`把服务转成非临时实例，然后Nacos就会主动检测其健康状态而不靠服务给Nacos发心跳，就算服务停了也不会从Nacos里面剔除
+
+#### 统一管理配置
+
+1. 在Nacos控制台`配置列表->+->Data ID->[服务名]-[环境].[后缀]->配置内容`编写配置
+2. 项目内建立`bootstrap.yml`配置Nacos地址，服务名，服务环境，Nacos配置后缀`spring.cloud.nacos.config.file-extension`然后删去`application.yml`中相同的配置
+3. 重启项目可通过`@Value`注解拿到配置信息，还可以在类上添加`@RefreshScope`实现热更新（在Nacos控制台的修改即时反应），或者新建一个配置类`@ConfigurationProperties`自动装配配置项，默认自动热更新
+
+#### Nacos集群
+
+1. `conf/cluster.conf.example`后的`.example`删去，在其中添加集群中每一个`[ip].port`
+
+2. `application.properties`配置数据库信息`spring.datasource.platform`和`db.*`
+
+3. 复制三份直接`startup.sh`
+
+4. 配置Nginx，访问Nacos自动负载均衡
+
+   ```conf
+   upstream nacos {
+   	server [ip]:[port];
+   	server [ip]:[port];
+   	server [ip]:[port];
+   }
+   server {
+   	listen	80;
+   	server_name	localhost;
+   	location /nacos {
+   		proxy_pass	http://nacos;
+   	}
+   }
+   ```
+
+### Feign
+
+1. `pom.xml`添加Feign依赖
+2. 启动类上加`@EnableFeignClients`注解
+3. 新建类并添加`@FeignClients("[服务名]")`注解
+4. 在方法上添加`@RequestMapping`注解用法和Controller一样
+5. 在Service注入`@FeignClient`标注类，调用请求方法即可
+
+Feign默认不支持连接池，可以添加`Httpclient`依赖，然后添加`feign.httpclient.enabled=true`设置开启，包括连接池配置（最大连接数等）
+
+### Gateway
+
+1. 添加gateway依赖
+2. 配置网关端口和名称，并注册到配置中心（Nacos，Eureka）
+3. 配置`spring.cloud.gateway.routes.id/uri/predicates/filters`四个，其中`uri`可以把`http`改成`lb`表示负载均衡，`predicates`是匹配[断言工厂](https://cloud.spring.io/spring-cloud-gateway/reference/html/#gateway-request-predicates-factories)数组，包括匹配路径`Path=/xx/**`等，`filters`是[过滤器](https://cloud.spring.io/spring-cloud-gateway/reference/html/#gatewayfilter-factories)，可以对请求做处理鉴权等
+4. 如果默认过滤器不满足需求，也可以自己重写`GlobalFilter.filter`方法，接受参数第一个是`ServerWebExchange`上下文和`GatewayFilterChain`放行器，通过注解`@Order`控制过滤器优先级，`[放行器].filter(上下文)`放行
+5. 通过配置`spring.cloud.gateway.globalcors`控制跨域处理
+
+### RabbitMQ
+
+队列结构，异步暂存收发消息，AMQP是程序传递消息标准
+
+1. `docker run -it --rm --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq`，15672是管理端口，5672是通信端口
+2. 访问管理端口，默认用户名和密码`guest`（可以通过`-e RABBITMQ_DEFAULT_USER/RABBITMQ_DEFAULT_PASS`设置）
+3. 引入springAMQP依赖
+4. 配置`spring.rabbitmq`设置服务端配置，ip地址，端口号（5672），用户名密码，虚拟主机
+5. 创建Bean`QueueBuilder.build()`创建队列
+6. 注入`RabbitTemplate`往特定队列发消息
+7. 新建类方法注解`@RabbitListener(queues = "[队列名]")`收消息
+
+默认消息预取，可以通过`spring.rabbitmq.listener.simple.prefetch`设置预取上限，交换机需要绑定队列使用，使用`BindingBuilder.bind`绑定，如果要发对象消息尽量转成json（导入Jackson依赖之后在启动类注入新Bean`messageConverter`返回`Jackson2JsonMessageConverter()`）
+
+- 简单工作队列只涉及队列，一个队列内的消息无法被多次获取
+- Fanout Exchange把消息分发给连接的每一个队列
+- Direct Exchange分发给RoutingKey一致的队列，监听端需要`@RabbitListener(bindings=@QueueBinding())`设置`key`表明监听标签
+- Topic Exchange分发给多个单词的RoutingKey，`key`中间以`.`分割，支持通配符`#`多个单词`*`一个单词
+
+#### 消息可靠性
+
+- 生产者确认，交换机收到之后返回一个确认`ack`，到了队列之后返回一个成功`publish-confirm`，没到队列返回`publish-return`和失败原因，返回确认情况应该带上消息id，需要配置下面这些
+
+  ```yaml
+  spring:
+  	rabbitmq:
+  		publisher-confirm-type: correlated  # 异步回调
+  		publisher-returns: true  # 开启失败信息返回
+  		template:
+  			mandatory: true  # 队列失败调用回调returnCallback
+  ```
+
+  `returnCallback`可以用`RabbitMQ.setReturnCallback`设置，确认的`Callback`我们则可以通过`CorrelationData.getFuture().addCallback()`设置回调函数在消息发送的时候追加到参数即可
+
+- 消息持久化，RabbitMQ是内存应用，因此重启队列信息和交换机都没了，我们可以在创建队列和交换机和消息的时候携带需要持久化参数或者比如`QueueBuilder.durable().build()`即可实现持久化
+- 消费者确认，接收到消息之后给RabbitMQ发一个`ack`他才会删除消息，Spring默认监听`Listener`即处理过程中是否抛出异常，有异常就不返回`ack`，但是可能出现一直重试，我们可以通过`spring.rabbitmq.listener.simple.prefetch/retry`设置本地重试或者创建`RepublishMessageRecoverer`把错误消息专门发到一个错误交换机
+
+#### 死信交换机
+
+消费者无法处理（返回`nack`），超时未消费，消息队列溢出之后的头消息称为死信，除了在代码内实现异常交换机投递，队列也可以通过设置属性`dead-letter-exchange=[交换机名]`绑定一个死信交换机用于处理死信
+
+我们可以给队列或者消息设置TTL超时时间并绑定死信交换机（`deadLetterExchange`），超时之后就会进入死信交换机，从而实现消息延迟投递，比如用户下单取消，会议预定等
+
+#### 惰性队列
+
+消息太多内存不够用可以在创建队列的时候使用`lazy()`指定为惰性队列，则消息会直接写入磁盘而不是内存，取的时候也是去磁盘取，普通队列会在内存达到占用40%的时候才去写入磁盘，写入磁盘的过程不允许消息传入
+
+#### MQ集群
+
+分为分片和主从集群，集群内通过主机名识别和通信，但是集群的对象是队列而不是服务器因此只要多个MQ联通之后我们只需要创建队列时设置队列应该分片还是复制（主从）
+
+1. 先开一个MQ然后`docker exec -it mq cat /var/lib/rabbitmq/.erlang.cookie`拿到一个cookie，集群内的MQ必须相同cookie才能通信
+
+2. 集群需要事先写好配置文件和集群信息`rabbitmq.conf`
+
+   ```conf
+   listeners.tcp.default = 5672
+   cluster_formation.peer_discovery_backend = rabbit_peer_discovery_classic_config
+   cluster_formation.classic_config.nodes.[集群编号] = rabbit@[主机名]  # 多个
+   ```
+
+3. 启动容器的时候把cookie挂到`/var/lib/rabbitmq/.erlang.cookie`，配置文件挂到`/etc/rabbitmq/rabbitmq.conf`，并且指定`--hostname [主机名]`必须和设定的保持一致，由于RabbitMQ用的是主机名进行通信，因此如果服务器不在同一个机器下需要配置`/etc/hosts`把主机名和IP进行映射，之后访问任意一台服务器测试集群连通性
+
+4. 在项目中配置`spring.rabbitmq.addresses`指定服务地址，多个地址用逗号分隔
+
+5. 默认是分片集群，如果要创建主从队列我们在创建的时候加上`quorum()`即可
+
+   > 上面是仲裁队列，要创建一般镜像队列则需要进入任意一个控制台编写`rabbitmqctl set_policy "[策略名称]" "[策略正则]" '{"ha-mode":[策略],"ha-params":[主从数量],"ha-sync-mode":"automatic"}'`策略正则比如`^test\.`那么就会在集群内对于`test`开头的队列创建指定数量的镜像或者是主从，其中策略可以用`exactly`，详细可以看[官网](https://www.rabbitmq.com/ha.html)
+
+### ElasticSearch
+
+用于搜索，拷贝自数据库，倒排索引，一张表是一个索引，表里的数据结构是映射，每一条记录是文档，可以用MQ和数据库实现同步
+
+#### ES部署
+
+1. `docker run --name es -d -e ES_JAVA_OPTS="-Xms512m -Xmx512m" -e "discovery.type=single-node" -v es-data:/usr/share/elasticsearch/data -v es-plugins:/usr/share/elasticsearch/plugins -p 9200:9200 -p 9300:9300 elasticsearch`，其中9200是用户搜索通信端口，9300是es集群互联通信端口
+2. 启动成功之后访问9200可以得到默认返回的一条json，可视化监视es工作和管理可以再部署一个kibana`docker run -d --name kibana -e ELASTICSEARCH_HOSTS=http://[es ip]:9200 -p 5601:5601 kibana`接着访问5601看看是否连接上
+
+#### DSL语法
+
+只介绍一部分，大部分去[官网查](https://www.elastic.co/guide/en/elasticsearch/reference/8.6/index.html)
+
+- `GET /_analyze`分词
+
+  - 下载[IK分词器](https://github.com/medcl/elasticsearch-analysis-ik)，解压后传到plugins目录下重启ES，可以修改其中的`config/IKAnalyzer.cfg.xml`定位扩展和停用额外分词字典
+  - `text`需要分词的文本
+  - `analyzer`分词器名（`ik_smart`，`ik_max_word`）
+- `PUT /[索引库名]`新建索引库映射
+
+  - `mappings.properties`内是映射，`type`数据类型，`text`会被分词，`keyword`不会分词，`object`可以内含另外`properties`，其余差不多（`long`，`boolean`等），定义需要被搜索的类型时需要指定分词器
+  - `/_mapping`新增字段，里面直接`properties`就行
+  - `DELETE`，`GET`控制的都是索引库映射
+- `POST /[索引库名]/_doc/[id]`新建文档
+
+  - 根据映射约束添加字段，`GET/DELETE`同理
+  - `PUT`如果指定的id已经存在就会删掉再增，`POST`则会报错
+  - 每写一次文档都会更新一下版本
+- `POST /[索引库名]/_update/[id]`局部更新，id不存在报错
+- `GET /[索引库名]/_search`查询匹配结果，根据条件返回不同若干文档
+
+  - `query`筛选范围，只例举部分，可查看[文档](https://www.elastic.co/guide/en/elasticsearch/reference/8.6/query-dsl.html)
+
+    - `match`模糊查询
+    - `range`值范围，包括比如`gte/lte`等
+    - `term`精确查询
+    - `geo_distance`以某一点为圆心`distance`为半径圆内所有文档，`geo_bounding_box`则是指定`top_left`和`bottom_right`方形区域内所有文档
+
+    - `function_score`根据查询条件算分，里面嵌套`query`查询条件，`functions`数组包含过滤条件`filter`和额外分值`weight`以及`boost_mode`额外分的增加方式（默认加法）
+
+    - `bool`满足或不满足若干指定条件的文档，包含`must/must_not/should/filter`其中filter和must一样，但是不参与算分
+  - 除了`query`之外还有`sort`用于排序，`from`控制起始位置，`size`控制一页大小，`highlight`高亮（周围包围`<em>`标签，与常规筛选文档分离），具体看帮助文档
+  - `aggs`聚合搜索，包括桶聚合（计数），度量聚合（最值均值），结果会和原本文档分开返回
+    - `brandAgg`桶聚合，内用`terms`指定字段和值和聚合返回的数量`size`
+    - `scoreAgg`度量聚合，内用`stats`指定字段和值，返回包含最大最小值均值和累计值，可和桶聚合嵌套使用，可以获得某个品牌价格的最值等
+
+#### RestClient
+
+1. 引入`elasticsearch-rest-high-level-client`依赖，必要修改ES版本`<elasticsearch.version>`，或者装一个和默认一致的ES
+2. 初始化一个`new RestHighLevelClient(RestClient.builder(HttpHost.create("http://[ip]:[port]")))`和ES连接
+3. 发请求前`client.indices().[操作方法]`，里面有所有的操作索引库的方法按照要求构建请求即可，如果文档操作则可以`client`直接点出来，条件查询则需要`SearchRequest`类，通过`source()`方法链式拼接所有条件后`client.search`
+4. 发完请求获取的原始内容是一个长json，为了从中分离出我们需要的信息，我们可以先用请求工具模拟发一个请求，然后通过`response.getxxx()`找找有没有自己需要的字段，没有的话可以直接`.get("[字段名]")`强行抽取字段
+
+#### 自动补全
+
+下载[拼音分词器](https://github.com/medcl/elasticsearch-analysis-pinyin)，同样解压之后放到plugin里面，分词器指定`pinyin`即可
+
+由于拼音分词器只能单个拼音分开，正常应该先IK分词之后再用拼音分词器，并且把分词结果保留拼音和词语两种形式才适合用于自动补全，因此我们需要自定义分词器，需要在创建索引库的时候带上`settings`字段，如下
+
+```json
+PUT /test
+{
+    "settings": {
+        "analysis": {
+            "analyzer":{
+                "my_analyzer": {
+                    "tokenizer": "ik_max_word",
+                    "filter": "py"
+                }
+            },
+            "filter": {
+                "py": {
+                    "type": "pinyin",
+                    "keep_full_pinyin": false,
+                    "keep_joined_full_pinyin": true,
+                    "keep_original": true,
+                    "limit_first_letter_length": 16,
+                    "remove_duplicated_term": true,
+                    "none_chinese_pinyin_tokenize": false
+                }
+            }
+		}
+    }
+}
+```
+
+同时需要注意文档存储时混合使用IK和拼音分词器，搜索的时候只用IK即可，因此创建索引库的时候还应该指明
+
+```json
+"mappings": {
+    "properties": {
+        "name": {
+            "type": "text",
+            "analyzer": "my_analyzer",
+            "search_analyzer": "ik_smart"
+        }
+    }
+}
+```
+
+#### ES集群
+
+1. 在上面的基础上改一下部分环境配置`docker run --name es -d -e ES_JAVA_OPTS="-Xms512m -Xmx512m" -e "discovery.seedhosts=[ip1],[ip2]" -e "cluster.name=[集群名称]" -e "cluster.initial_master_nodes=[ip1],[包括自己]" -v es-data:/usr/share/elasticsearch/data -v es-plugins:/usr/share/elasticsearch/plugins -p 9200:9200 elasticsearch`，`discovery.seedhosts`是其他两个ES的位置，`cluster.name`是集群名称，`cluster.initial_master_nodes`是可以参与选举成为主节点的ES，由于默认用9300内部通信因此不需要暴露出来，其余几个ES把暴露端口改一改就行了
+2. 安装一个cerebro代替kibana管理ES集群，里面随便输入一个节点就行
+3. 在创建索引库的时候定义`settings.number_of_shards/number_of_replicas`可以指定分片数量和副本数量
+
+为了防止脑裂，集群数量最好是奇数，插入数据的时候会根据文档的id来分配数据应该被存到哪个分片，因此索引库创建之后分片数量不能修改，节点坏了之后其他节点会把坏了的节点数据迁移到其他节点，好了之后再还原
+
+### Sentinel
+
+雪崩就是上游机器阻塞了下游爆一堆，常用解决策略有超时处理，舱壁模式，熔断降级
+
+Sentinel用信号量隔离，基于慢调用比例或异常比例熔断降级，支持QPS和调用关系的限流及慢启动和匀速排队，
+
+- 把jar包[下过来](https://github.com/alibaba/Sentinel)直接启动，可以用`-Dserver.port`设定端口等，详细看[wiki](https://github.com/alibaba/Sentinel/wiki)，默认sentinel账号密码
+- 项目内引入`spring-cloud-starter-alibaba-sentinel`
+- 配置Sentinel地址`spring.cloud.sentinel.transport.dashboard`，如果使用了Feign则还需要配`feign.sentinel.enabled`并
+- 启动项目后对任意Controller发一次请求才会在Sentinel控制面板上显示监控信息，默认Sentinel只监控Controller方法
+- 接收请求的限流规则直接在Sentinel控制台配配配就行了，发送请求的限流规则（比如整合Feign，用户请求的接口调用了其他微服务接口的情况）则需要手动实现`FallbackFactory`然后在`@FeignClient`注解上指明`FallbackFactory`
+- 由于大部分含Sentinel的微服务都是网关转发过来的，因此网关在转发请求的时候可以携带一些身份认证，之后在Sentinel里面配置通过的授权规则，避免不法分子滥用接口
+- 想要自定义异常处理，则需要实现`BlockExceptionHandler`里面的`handle`方法通过判断`BlockExceptinon`的类型来分别进行异常处理
+- 如果想要保存Sentinel的配置到Nacos那得自己改动源代码，解压之后找到`sentinel-dashboard`添加`sentinel-datasource-nacos`依赖，`然后找src.test.java...rule.nacos`复制到`main.java..rule`里面并在配置文件内添加`nacos.addr`，同时修改`...controller.v2.FlowControllerV2`类更改两处`@Qualifier("flowRuleNacosProvider/Publisher")`，修改`webapp.app.scripts.directives.sidebar.sidebar.html`解开`流控规则-NACOS`标签注解打包，接着在自己的项目里也引入依赖`sentinel-datasource-nacos`，配置`spring.cloud.sentinel.datasource.flow.nacos`确定Nacos地址，还是比较麻烦的
+
+### Seata
+
+处理分布式事务，原子性，一致性，隔离性，持久性（ACID）
+
+#### Seata部署
+
+1. 下载压缩包解压
+
+2. `conf/registry.conf`服务注册和配置
+
+3. Seata会将分布式事务内容记录到数据库，因此要在配置中心（比如Nacos）添加配置文件`seataServer.properties`添加数据库依赖
+
+   ```properties
+   # 数据存储方式，db代表数据库
+   store.mode=db
+   store.db.datasource=druid
+   store.db.dbType=mysql
+   store.db.driverClassName=com.mysql.jdbc.Driver
+   store.db.url=jdbc:mysql://127.0.0.1:3306/seata?useUnicode=true&rewriteBatchedStatements=true
+   store.db.user=root
+   store.db.password=123
+   store.db.minConn=5
+   store.db.maxConn=30
+   store.db.globalTable=global_table
+   store.db.branchTable=branch_table
+   store.db.queryLimit=100
+   store.db.lockTable=lock_table
+   store.db.maxWait=5000
+   # 事务、日志等配置
+   server.recovery.committingRetryPeriod=1000
+   server.recovery.asynCommittingRetryPeriod=1000
+   server.recovery.rollbackingRetryPeriod=1000
+   server.recovery.timeoutRetryPeriod=1000
+   server.maxCommitRetryTimeout=-1
+   server.maxRollbackRetryTimeout=-1
+   server.rollbackRetryTimeoutUnlockEnable=false
+   server.undo.logSaveDays=7
+   server.undo.logDeletePeriod=86400000
+   
+   # 客户端与服务端传输方式
+   transport.serialization=seata
+   transport.compressor=none
+   # 关闭metrics功能，提高性能
+   metrics.enabled=false
+   metrics.registryType=compact
+   metrics.exporterList=prometheus
+   metrics.exporterPrometheusPort=9898
+   ```
+
+4. 新建库Seata（和配置保持一致），然后建表
+
+   ```sql
+   SET NAMES utf8mb4;
+   SET FOREIGN_KEY_CHECKS = 0;
+   
+   -- ----------------------------
+   -- 分支事务表
+   -- ----------------------------
+   DROP TABLE IF EXISTS `branch_table`;
+   CREATE TABLE `branch_table`  (
+     `branch_id` bigint(20) NOT NULL,
+     `xid` varchar(128) CHARACTER SET utf8 COLLATE utf8_general_ci NOT NULL,
+     `transaction_id` bigint(20) NULL DEFAULT NULL,
+     `resource_group_id` varchar(32) CHARACTER SET utf8 COLLATE utf8_general_ci NULL DEFAULT NULL,
+     `resource_id` varchar(256) CHARACTER SET utf8 COLLATE utf8_general_ci NULL DEFAULT NULL,
+     `branch_type` varchar(8) CHARACTER SET utf8 COLLATE utf8_general_ci NULL DEFAULT NULL,
+     `status` tinyint(4) NULL DEFAULT NULL,
+     `client_id` varchar(64) CHARACTER SET utf8 COLLATE utf8_general_ci NULL DEFAULT NULL,
+     `application_data` varchar(2000) CHARACTER SET utf8 COLLATE utf8_general_ci NULL DEFAULT NULL,
+     `gmt_create` datetime(6) NULL DEFAULT NULL,
+     `gmt_modified` datetime(6) NULL DEFAULT NULL,
+     PRIMARY KEY (`branch_id`) USING BTREE,
+     INDEX `idx_xid`(`xid`) USING BTREE
+   ) ENGINE = InnoDB CHARACTER SET = utf8 COLLATE = utf8_general_ci ROW_FORMAT = Compact;
+   
+   -- ----------------------------
+   -- 全局事务表
+   -- ----------------------------
+   DROP TABLE IF EXISTS `global_table`;
+   CREATE TABLE `global_table`  (
+     `xid` varchar(128) CHARACTER SET utf8 COLLATE utf8_general_ci NOT NULL,
+     `transaction_id` bigint(20) NULL DEFAULT NULL,
+     `status` tinyint(4) NOT NULL,
+     `application_id` varchar(32) CHARACTER SET utf8 COLLATE utf8_general_ci NULL DEFAULT NULL,
+     `transaction_service_group` varchar(32) CHARACTER SET utf8 COLLATE utf8_general_ci NULL DEFAULT NULL,
+     `transaction_name` varchar(128) CHARACTER SET utf8 COLLATE utf8_general_ci NULL DEFAULT NULL,
+     `timeout` int(11) NULL DEFAULT NULL,
+     `begin_time` bigint(20) NULL DEFAULT NULL,
+     `application_data` varchar(2000) CHARACTER SET utf8 COLLATE utf8_general_ci NULL DEFAULT NULL,
+     `gmt_create` datetime NULL DEFAULT NULL,
+     `gmt_modified` datetime NULL DEFAULT NULL,
+     PRIMARY KEY (`xid`) USING BTREE,
+     INDEX `idx_gmt_modified_status`(`gmt_modified`, `status`) USING BTREE,
+     INDEX `idx_transaction_id`(`transaction_id`) USING BTREE
+   ) ENGINE = InnoDB CHARACTER SET = utf8 COLLATE = utf8_general_ci ROW_FORMAT = Compact;
+   
+   SET FOREIGN_KEY_CHECKS = 1;
+   ```
+
+5. 运行`seata-server.sh`启动服务
+
+6. 项目内引入依赖`seata-spring-boot-starter`，如果版本不够需要手动调一下
+
+7. 配置`seata.registry.nacos`下的Nacos配置，地址，命名空间，服务名称，组
+
+8. 配置`seata.tx-service-group`事务组，然后配置`service.vgroup-mapping.seata-demo`设置集群名称
+
+9. 设置`seata.data-source-proxy-mode`设置解决方案名称（XA，AT，TCC，SAGA）
+
+10. 给发起全局事务的入口方法（Service）添加`@GlobalTransactional`注解
+
+#### Seata架构
+
+- RM用于控制每一个和数据库交互的微服务（Service中的调用方法）
+- TM用于向TC发起全局事务请求和调用RM（Service）
+- TC用于管理整个分布式事务状态和服务配置（启动的服务器）
+
+#### 解决方案
+
+- CAP定理
+
+  - 一致性（Consistency），数据备份及时完成同步
+  - 可用性（Availability），访问任意节点都要即时反馈
+  - 分区容错（Partition Tolerance），在出现错误时维持一致性和可用性的平衡
+
+  > ES是高一致低可用（CP），每一个节点坏了就不管他上面的同步了
+
+- BASE理论
+
+  - 基本可用（Basically Available），出现故障时保证部分可用
+  - 软状态（Soft State），允许出现临时不一致状态
+  - Eventually Consistent（最终一致性），软状态结束之后必须数据一致
+
+- XA模式，所有事务执行完不提交，所有微服务事务都没错之后再统一提交，但是占用锁，低可用
+
+- AT模式，直接提交并保存快照，失败之后恢复快照，但是单纯保存快照可能产生脏写因此还是占用锁，只不过这个锁Seata管理而不是数据库（较多使用）
+
+- TCC模式，直接尝试提交并保存反向更新方法和此条事务的相关信息（全局事务ID，事务三种状态（尝试提交，确认，回滚），事务操作内容），适用于数字类加减更新，无法自动完成必须手动配置反向更新操作详细内容，自己写的时候还需要考虑幂等，空回滚，业务悬挂等健壮性
+
+  ![img](https://s2.loli.net/2023/02/08/17sEDtz6e8l3RMQ.png)
+
+  > 之后实现接口方法控制尝试提交，确认提交和回滚
+
+- SAGA模式，在TCC基础上删掉了保存事务信息的过程，只进行提交和回滚，没有事务隔离性
+
+### Redis
+
+停机后Redis不保存数据，并发能力有限，一个Redis宕机了就寄了
+
+#### 持久化
+
+- RDB，每一段时间拷贝一整个Redis内容到文件中，默认在正常停机之后执行，在`redis.conf`里面配置`save [探测时间] [修改数量]`控制RDB执行频率，可以配多个
+- AOF，每一段时间在文件后追加修改内容，文件比较大，需要配置`appendfsync always/everysec`，嫌文件太大了可以用`auto-aof-rewrite-min-size 64mb`在超过之后自动整理
+
+#### 集群
+
+在配置里加上`slaveof [master-ip] [master-port]`即可实现主从，主从全量同步（第一次）用RDB方式保证基本一致，用LOG保证完全一致，增量同步则根据从里面的偏移量（offset）控制差多少同步差的内容，偏移量差太多了就全量，默认主写从读，从节点没有写入权限
+
+额外加一层Redis哨兵监控主节点是否可用，不可用之后所有哨兵投票出一个从节点替换主节点，我们直接找哨兵要主从节点地址，用`redis-sentinel`启动一个哨兵，其配置文件可以看[官网](https://redis.io/docs/management/sentinel/)，Sentinel配置只需要指定主节点地址即可
+
+由于要用RDB因此单点Redis内存不要分太大，于是就可以进行分片，集群内多个主节点互相监控就不需要Sentinel了，同时每一个主节点还可以有多个从节点保证可用，改一下配置文件
+
+```conf
+port 6379
+# 开启集群功能
+cluster-enabled yes
+# 集群的配置文件名称，不需要我们创建，由redis自己维护
+cluster-config-file /tmp/6379/nodes.conf
+# 节点心跳失败的超时时间
+cluster-node-timeout 5000
+# 持久化文件存放目录
+dir /tmp/6379
+# 绑定地址
+bind 0.0.0.0
+# 让redis后台运行
+daemonize yes
+# 注册的实例ip
+replica-announce-ip 192.168.150.101
+# 保护模式
+protected-mode no
+# 数据库数量
+databases 1
+# 日志
+logfile /tmp/6379/run.log
+```
+
+然后执行`redis-cli --cluster create --cluster-replicas [每一个主节点多少个从节点] [多个ip:port]`即可，注意后面的IP个数应该能被前面的数字加一整除
+
+分片通过哈希计算插槽，分到固定的分片，每一个分片享有固定数量插槽，我们可以在在设置键的时候把同类键值加上`{}`统一字段控制被分配到同一个分片，如果想新加一个分片，则可以在新开的Redis上`redis-cli --cluster reshard [ip:port]`根据提示分片
+
+1. 引入`spring-boot-starter-data-redis`
+
+2. 配置`spring.redis.sentinel.nodes/master`配置Sentinel集群地址和主节点名称，如果是分片集群则直接配`spring.redis.cluster.nodes`所有节点即可
+
+3. 注入读写分离配置（RedisTemplate底层用的是Lettuce）
+
+   ```java
+   @Bean
+   public LettuceClientConfigurationBuilderCustomizer configurationBuilderCustomizer(){
+       return configBuilder -> configBuilder.readFrom(ReadFrom.REPLICA_PREFERRED);
+   }
+   ```
+
+### Caffeine
+
+用于内部缓存，随每一个微服务启停产生和消失，近似一个NoSQL数据库
+
+- 引入springcloud之后默认已经引入直接使用就行
+- `Caffeine.newBuilder().build()`创建一个缓存对象
+- 通过build出来的这个对象`.put`方法记录键值，`.get`获取键值，包括设置缓存上限和有效时间等，自己试一试也容易
+
+### OpenResty
+
+就是Nginx+Lua，加了Lua之后可以作为请求分发使用，要用Lua得添加模块依赖
+
+```conf
+lua_package_path "/usr/local/openresty/lualib/?.lua;;";
+lua_package_path "/usr/local/openresty/lualib/?.so;;";
+```
+
+之后转发请求规则可以这么写
+
+```conf
+server {
+	location /api/item {
+		default_type application/json;
+		# 响应结果由指定文件控制
+		content_by_lua_file lua/item.lua;
+	}
+}
+```
+
+在OpenResty里面，Lua函数库大部分都可以在`ngx`里面找到（不需要导入），在微服务中，我们用Nginx进行请求分发和本地缓存，本地缓存没有则转发请求到Redis再没有再请求Tomcat，这个过程中主要的几个函数有以下几个
+
+- `ngx.log(ngx.ERR,content)`打印到日志
+
+- `ngx.location.capture(path,param)`发起一个请求并获取结果
+- `ngx.shared.item_cache:set(key,value,timeout)`存入本地缓存，注意在此之前需要在`nginx.conf`中添加`lua_shared_dict item_cache [容量]`来设置本地缓存容量
+- `require('resty.redis'):new()`创建一个Redis对象，之后使用`:connect`获取Redis连接，用`:set_timeouts`等方法设置连接配置，和go一样调用函数的过程中可以用例如`ok,err = redis:connect(ip,port)`进行错误处理
+- `ngx.say([返回内容])`返回给发送者内容（一般是JSON）
+- `require('cjson').encode/decode`序列化和反序列化JSON
+
+### Canal
+
+缓存同步的策略一般有设置有效期（时效性差），同步双写（代码侵入），异步通知（MQ，权衡后的结果）三种方式
+
+监听数据库Log文件在数据进行变动之后
+
+1. 开启数据库主从，MySQL在`conf/my.cnf`中添加启用日志`log-bin=[log文件位置和名称]`和启用日志的数据库`binlog-do-db=[数据库名]`
+
+2. Canal用docker启动还是有点麻烦的，可以写一个docker-compose文件
+
+   ```yaml
+   version: '3'
+   
+   services:
+     canal-server:
+       image: canal/canal-server:v1.1.4
+       container_name: canal-server
+       restart: unless-stopped
+       network_mode: host
+       ports: 
+         - 11111:11111
+       environment:
+         - canal.auto.scan=false
+         - canal.instance.master.address=127.0.0.1:3306
+         - canal.instance.dbUsername=canal
+         - canal.instance.dbPassword=canal
+         - canal.instance.filter.regex=.*\\..*
+         - canal.destinations=test
+         - canal.instance.connectionCharset=UTF-8
+         - canal.instance.tsdb.enable=true
+       volumes:
+         - /root/canal/test/log/:/home/admin/canal-server/logs/
+   ```
+
+3. 引入`canal-spring-boot-starter`，配置`canal.destination`集群名称和`canal.server`地址和端口
+
+4. 编写实现类实现`EntryHandler<[表实体类]>`接口并添加`@CanalTable([监听表名])`，实现`insert/update/delete`方法即可
+
+5. 还需要在实体类中加`@id`注解到属性标注主键，添加`@Transient`注解到不属于表中的属性
 
