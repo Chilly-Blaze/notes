@@ -1,4 +1,4 @@
-# DeepLearning
+# Deep Learning
 
 总之还是迈入深度学习的大坑了，不求学的很精，能拿来装装逼足以
 
